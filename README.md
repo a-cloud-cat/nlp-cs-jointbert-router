@@ -64,7 +64,7 @@ zryy/
 
 ### src/models.py
 
-定义系统核心数据模型（参考 Claw Code 架构风格）：
+定义系统核心数据模型（采用现代 Python 架构风格，使用 frozen dataclass 确保数据不可变、可变 dataclass 支持状态流转）：
 
 | 模型 | 说明 |
 |------|------|
@@ -79,7 +79,7 @@ zryy/
 
 ### src/registry.py
 
-服务注册中心（参考 Claw Code `ExecutionRegistry` 模式）：
+服务注册中心（采用注册器模式，统一管理服务通道的注册、查询与路由）：
 
 - `register()` 注册服务通道及其关键词映射
 - `get_channel()` / `get_channel_by_intent()` 按名称/意图查询
@@ -112,6 +112,45 @@ NLP 服务模块：
 - 审核操作（确认分发、修改意图分类）
 - 聊天记录格式化展示
 - 审核统计
+
+## 架构优化亮点
+
+本项目借鉴成熟的企业级架构设计理念，对代码结构进行了以下优化：
+
+### 1. 注册器模式（Registry Pattern）
+
+`ServiceRegistry` 采用中心化注册机制，所有服务通道通过 `register()` 统一注册，支持：
+- 按名称/意图快速查询
+- 关键词匹配路由
+- 按分组管理服务
+
+### 2. 不可变数据模型（Immutable Data）
+
+核心数据对象使用 `frozen dataclass` 定义，确保数据不可变：
+- `ServiceChannel`、`Prediction` 等对象创建后状态不会被意外修改
+- 仅状态流转对象（如 `ReviewItem`）使用可变 dataclass
+
+### 3. 服务层分离（Service Layer）
+
+业务逻辑按功能拆分为独立服务模块：
+- `NLPService`：意图识别与槽位提取
+- `SessionService`：会话管理
+- `ReviewService`：审核流程
+- 各服务职责单一，易于测试和维护
+
+### 4. 查询引擎模式（Query Engine）
+
+`NLPService` 实现了双轨意图识别机制：
+- 规则匹配：快速关键词匹配
+- 模型预测：基于 BERT 的深度学习分类
+- 结果融合：取置信度更高的结果
+
+### 5. 结构化异常处理
+
+定义了完整的异常体系：
+- `AppError` 作为基类
+- 各业务异常继承自基类
+- 便于统一错误处理和日志记录
 
 ## 使用方法
 
