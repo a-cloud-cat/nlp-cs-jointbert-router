@@ -1,0 +1,11 @@
+.idea/
+.pip_cache/
+__pycache__/
+models/
+checkpoints/
+.venv/
+*.pyc
+*.pyo
+.DS_Store
+output/
+*.log
