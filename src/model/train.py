@@ -10,8 +10,8 @@ from sklearn.metrics import accuracy_score, f1_score
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config.config import *
-from model.model import JointBERT
-from model.data_process import load_dataset
+from model.joint_bert import JointBERT
+from model.data_loader import load_dataset
 
 class NLU_Dataset(Dataset):
     def __init__(self, data, tokenizer):

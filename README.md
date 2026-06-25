@@ -44,7 +44,7 @@
 
 ```
 zryy/
-├── run.py                          # 启动入口
+├── main.py                         # 启动入口
 ├── README.md                       # 项目说明
 ├── LICENSE                         # 许可证
 ├── requirements.txt                # 依赖清单
@@ -60,19 +60,19 @@ zryy/
 │   ├── __init__.py                 # 模块导出
 │   ├── models.py                   # 核心数据模型
 │   ├── registry.py                 # 服务注册中心
-│   ├── app/                        # Flask应用
+│   ├── api/                        # REST API服务
 │   │   ├── __init__.py
-│   │   ├── app.py                  # 主应用
-│   │   └── app_simple.py           # 简化版应用
+│   │   ├── server.py               # 主服务器
+│   │   └── simple.py               # 简化版服务器
 │   ├── config/                     # 配置文件
 │   │   └── config.py               # 模型/意图/槽位配置
 │   ├── data/                       # 学习数据
 │   │   └── learned_products.json   # 学习到的商品列表
 │   ├── model/                      # 机器学习模型
 │   │   ├── __init__.py
-│   │   ├── data_process.py         # 数据预处理
-│   │   ├── model.py                # JointBERT架构
-│   │   ├── predict.py              # 模型预测
+│   │   ├── joint_bert.py           # JointBERT架构
+│   │   ├── data_loader.py          # 数据加载与预处理
+│   │   ├── inference.py            # 模型推理
 │   │   ├── train.py                # 模型训练
 │   │   └── session.py              # 会话数据模型
 │   ├── services/                   # 业务服务
@@ -124,6 +124,15 @@ NLP 服务模块：
 - **上下文理解**：利用会话历史辅助意图识别
 - **澄清问题**：每种意图预置 3 条多样化问题，随机选取
 - **置信度判定**：高(≥0.85) / 中(≥0.4) / 低 三档
+
+### src/api/server.py
+
+REST API 服务器模块：
+
+- **路由处理**：用户对话、审核管理、API 转发等接口
+- **会话管理**：创建、查询、重置会话
+- **审核流程**：待审核列表、确认分发
+- **学习流程**：商品学习、槽位更新
 
 ### src/services/session_service.py
 
@@ -211,7 +220,7 @@ pip install -r requirements.txt
 ### 2. 启动服务
 
 ```bash
-python run.py
+python main.py
 ```
 
 访问地址：http://127.0.0.1:5000

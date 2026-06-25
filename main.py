@@ -3,7 +3,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from src.app.app import app
+from src.api.server import app
 
 if __name__ == '__main__':
     print('=' * 50)

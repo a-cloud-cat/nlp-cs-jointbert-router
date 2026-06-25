@@ -80,7 +80,7 @@ class NLPService:
     def _init_predictor(self):
         if self._predictor is None:
             try:
-                from model.predict import Predictor
+                from model.inference import Predictor
                 self._predictor = Predictor()
             except Exception:
                 self._predictor = None

@@ -142,7 +142,7 @@ class Predictor:
     def _init_model(self):
         try:
             from transformers import BertTokenizer
-            from model.model import JointBERT
+            from model.joint_bert import JointBERT
 
             self.tokenizer = BertTokenizer.from_pretrained(BERT_MODEL_NAME)
             self.model = JointBERT()
