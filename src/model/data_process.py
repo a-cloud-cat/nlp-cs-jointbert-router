@@ -1,12 +1,16 @@
 import os
+import sys
 import re
 import json
 import random
 import jieba
-from config import DATA_DIR, INTENT_LABEL_MAP, SLOT_LABEL_MAP, MAX_SEQ_LEN
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from config.config import DATA_DIR, INTENT_LABEL_MAP, SLOT_LABEL_MAP, MAX_SEQ_LEN
 
 STOPWORDS = set()
-with open(os.path.join(os.path.dirname(__file__), 'stopwords.txt'), 'r', encoding='utf-8') as f:
+with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'stopwords.txt'), 'r', encoding='utf-8') as f:
     for line in f:
         STOPWORDS.add(line.strip())
 

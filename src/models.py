@@ -57,7 +57,52 @@ class Session:
         return len([m for m in self.messages if m.role == MessageRole.USER])
 
     def get_conversation_summary(self) -> str:
-        return " ".join(m.text for m in self.messages if m.role == MessageRole.USER)
+        user_messages = [m.text for m in self.messages if m.role == MessageRole.USER]
+        if not user_messages:
+            return ""
+
+        summary_parts = []
+
+        extracted_slots = self.metadata.get('extracted_slots', {})
+        if extracted_slots:
+            slot_str = ", ".join(f"{k}: {v}" for k, v in extracted_slots.items())
+            summary_parts.append(f"【已识别信息】{slot_str}")
+
+        intent_history = self.metadata.get('intent_history', [])
+        if intent_history:
+            recent_intents = intent_history[-3:] if len(intent_history) > 3 else intent_history
+            intent_str = " → ".join(i['intent'] for i in recent_intents)
+            summary_parts.append(f"【意图轨迹】{intent_str}")
+
+        recent_messages = user_messages[-3:] if len(user_messages) > 3 else user_messages
+        summary_parts.append(f"【用户对话】{'；'.join(recent_messages)}")
+
+        return "\n".join(summary_parts)
+
+    def update_slots(self, new_slots: Dict[str, str]) -> None:
+        existing_slots = self.metadata.get('extracted_slots', {})
+        existing_slots.update(new_slots)
+        self.metadata['extracted_slots'] = existing_slots
+
+    def append_intent(self, intent: str, confidence: float) -> None:
+        intent_history = self.metadata.get('intent_history', [])
+        intent_history.append({
+            'intent': intent,
+            'confidence': confidence,
+            'timestamp': datetime.now().isoformat()
+        })
+        if len(intent_history) > 10:
+            intent_history = intent_history[-10:]
+        self.metadata['intent_history'] = intent_history
+
+    def get_slots(self) -> Dict[str, str]:
+        return self.metadata.get('extracted_slots', {})
+
+    def is_compacted(self) -> bool:
+        return self.metadata.get('compacted', False)
+
+    def mark_compacted(self) -> None:
+        self.metadata['compacted'] = True
 
 
 @dataclass(frozen=True)

@@ -1,8 +1,11 @@
-import torch
 import os
+import sys
+import torch
 import re
 import random
 from typing import Dict, Optional
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 INTENT_LABELS = [
     "退货申请", "退款申请", "换货申请", "拒收", "售后维权",
@@ -139,7 +142,7 @@ class Predictor:
     def _init_model(self):
         try:
             from transformers import BertTokenizer
-            from model import JointBERT
+            from model.model import JointBERT
 
             self.tokenizer = BertTokenizer.from_pretrained(BERT_MODEL_NAME)
             self.model = JointBERT()

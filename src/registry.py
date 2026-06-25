@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-from .models import ChannelGroup, ServiceChannel
+from models import ChannelGroup, ServiceChannel
 
 
 @dataclass(frozen=True)
@@ -70,7 +75,7 @@ def _build_default_registry() -> ServiceRegistry:
         '售后维权': ('维权', '投诉维权', '申请维权', '维权申请', '售后投诉'),
         '商品投诉': ('投诉', '投诉商品', '商品投诉', '商品有问题', '产品质量'),
         '商家投诉': ('商家态度', '投诉商家', '商家恶劣', '服务态度', '客服态度'),
-        '质量问题': ('质量差', '质量问题', '有问题', '坏了', '质量不好', '做工差', '有缺陷'),
+        '质量问题': ('质量差', '质量问题', '有问题', '坏了', '质量不好', '做工差', '有缺陷', '发霉', '发霉了', '发霉的', '变质', '过期', '破损', '损坏', '开裂', '断裂', '变形', '漏水', '漏油', '异味', '异味重', '色差', '尺寸不符', '材质差', '甲醛', '甲醛味', '气味重', '刺鼻', '有毒', '有害物质', '过敏', '掉色', '褪色', '脱皮', '开胶', '生锈', '划痕', '污渍'),
         '货不对板': ('货不对板', '发错货', '不是这个', '与描述不符', '描述不一致'),
         '少发漏发': ('少发', '漏发', '没发全', '少了一件', '漏寄了', '少寄了'),
     }

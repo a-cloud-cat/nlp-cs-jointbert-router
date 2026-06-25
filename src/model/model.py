@@ -1,7 +1,12 @@
+import os
+import sys
 import torch
 import torch.nn as nn
 from transformers import BertModel
-from config import NUM_INTENT_CLASSES, NUM_SLOT_CLASSES, BERT_MODEL_NAME, DROPOUT_RATE, MAX_SEQ_LEN
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from config.config import NUM_INTENT_CLASSES, NUM_SLOT_CLASSES, BERT_MODEL_NAME, DROPOUT_RATE, MAX_SEQ_LEN
 
 class CRFLayer(nn.Module):
     def __init__(self, num_tags):

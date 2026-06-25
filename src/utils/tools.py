@@ -1,8 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Dict, List, Tuple, Any
-from errors import ServiceError, PermissionError
-from hooks import HookRunner, HookContext, HookResult
+from utils.errors import ServiceError, PermissionError
+from utils.hooks import HookRunner, HookContext, HookResult
 
 
 @dataclass(frozen=True)

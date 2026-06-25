@@ -1,13 +1,17 @@
 import os
+import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from transformers import BertTokenizer
 from sklearn.metrics import accuracy_score, f1_score
-from config import *
-from model import JointBERT
-from data_process import load_dataset
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from config.config import *
+from model.model import JointBERT
+from model.data_process import load_dataset
 
 class NLU_Dataset(Dataset):
     def __init__(self, data, tokenizer):

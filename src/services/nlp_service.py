@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import os
+import sys
 import random
 import re
+import json
 from typing import Dict, Optional, Tuple
 
-from ..models import ChannelGroup, Prediction
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from models import ChannelGroup, Prediction
 
 
 CONFIDENCE_HIGH = 0.85
@@ -12,13 +17,31 @@ CONFIDENCE_MEDIUM = 0.4
 MAX_CLARIFICATION_ROUNDS = 5
 WELCOME_MESSAGE = "亲，您有什么需求？"
 
+LEARNED_PRODUCTS_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'learned_products.json')
+
+QUANTIFIERS = ['个', '件', '套', '只', '双', '条', '台', '瓶', '盒', '袋', '款', '款', '类', '种', '样', '些', '多', '各', '每']
+ADJECTIVES = ['好', '坏', '新', '旧', '大', '小', '高', '矮', '长', '短', '胖', '瘦', '宽', '窄', '厚', '薄',
+              '红', '绿', '蓝', '白', '黑', '黄', '紫', '粉', '灰', '棕',
+              '漂亮', '好看', '难看', '可爱', '实用', '便宜', '贵', '划算',
+              '质量', '问题', '破损', '损坏', '坏了', '有问题', '太差', '差劲',
+              '满意', '不满意', '喜欢', '不喜欢', '想要', '需要', '想买', '收到']
+
 COMMON_PRODUCTS = [
     '手机壳', '蓝牙耳机', '笔记本电脑', '充电宝', '数据线', '鼠标', '键盘', '显示器',
-    '茶杯', '保温杯', '衣服', '鞋子', '包包', '化妆品', '护肤品', '手表', '耳机',
-    '台灯', '书桌', '椅子', '电脑', '手机', '平板', '音箱', '路由器', '硬盘',
+    '茶杯', '保温杯', '水杯', '水壶', '水瓶', '衣服', '鞋子', '包包', '化妆品', '护肤品', '手表', '耳机',
+    '台灯', '书桌', '椅子', '柜子', '书架', '床', '沙发', '茶几', '桌子', '电脑', '手机', '平板', '音箱', '路由器', '硬盘',
     '充电器', '电池', 'U盘', '摄像头', '耳机套', 'T恤', '裤子', '帽子', '围巾',
     '手套', '袜子', '眼镜', '雨伞', '背包', '钱包', '皮带', '领带', '皮鞋',
-    '运动鞋', '拖鞋', '睡衣', '内衣', '外套', '毛衣', '衬衫', '裙子', '短裤'
+    '运动鞋', '拖鞋', '睡衣', '内衣', '外套', '毛衣', '衬衫', '裙子', '短裤',
+    '冰箱', '洗衣机', '空调', '电视', '微波炉', '烤箱', '电饭煲', '电水壶', '电风扇', '吹风机',
+    '牙刷', '牙膏', '毛巾', '浴巾', '洗发水', '沐浴露', '洗面奶', '面霜', '面膜',
+    '书籍', '文具', '笔', '本子', '书包', '文件夹', '计算器', '台灯',
+    '锅', '碗', '盘子', '筷子', '勺子', '刀', '砧板', '保鲜盒',
+    '窗帘', '地毯', '枕头', '被子', '床单', '被套', '蚊帐', '衣架',
+    '自行车', '电动车', '汽车用品', '行李箱', '旅行包', '雨伞', '太阳镜',
+    '零食', '食品', '水果', '蔬菜', '饮料', '牛奶', '面包', '饼干', '巧克力', '糖果',
+    '坚果', '薯片', '方便面', '火腿肠', '罐头', '茶叶', '咖啡', '酸奶', '蛋糕', '冰淇淋',
+    '娃娃', '玩具', '玩偶', '公仔', '毛绒玩具', '积木', '拼图', '模型', '手办'
 ]
 
 CLARIFICATION_QUESTIONS = {
@@ -57,7 +80,7 @@ class NLPService:
     def _init_predictor(self):
         if self._predictor is None:
             try:
-                from predict import Predictor
+                from model.predict import Predictor
                 self._predictor = Predictor()
             except Exception:
                 self._predictor = None
@@ -95,29 +118,156 @@ class NLPService:
 
         return slots
 
+    PRODUCT_KEYWORDS = ['柜', '桌', '椅', '床', '沙发', '茶几', '书架', '衣柜', '鞋柜', '电视柜', '书柜', '床头柜', '储物柜', '餐柜', '办公桌', '电脑桌',
+                     '杯', '壶', '瓶', '碗', '盘', '锅', '勺', '筷',
+                     '衣服', '鞋', '包', '帽', '裤', '裙', '衫', '袜', '手套',
+                     '手机', '电脑', '平板', '耳机', '音箱', '键盘', '鼠标', '显示器',
+                     '冰箱', '洗衣机', '空调', '电视', '微波炉', '烤箱', '电饭煲',
+                     '书', '笔', '本', '文具',
+                     '牙刷', '牙膏', '毛巾', '洗发水', '沐浴露', '化妆品',
+                     '眼镜', '手表', '皮带', '领带',
+                     '伞', '风扇', '台灯', '充电器', '电池']
+
     def extract_product(self, text: str) -> Optional[str]:
-        for product in COMMON_PRODUCTS:
+        exclude_words = ['退货', '物流', '发票', '优惠券', '地址', '订单', '手机', '太差', '差劲', '问题', '质量', '商品', '退款', '换货', '补发', '破损', '损坏', '有问题', '坏', '想退', '想换']
+
+        all_products = self.get_all_products() + sorted(self.PRODUCT_KEYWORDS, key=len, reverse=True)
+        all_products = sorted(set(all_products), key=len, reverse=True)
+
+        for product in all_products:
+            pattern = r'(?<![\u4e00-\u9fa5])' + re.escape(product) + r'(?![\u4e00-\u9fa5])'
+            if re.search(pattern, text):
+                return product
+
+        for product in all_products:
             if product in text:
                 return product
 
         product_patterns = [
-            r'(这个|那个|买的|收到的|商品)\s*([\u4e00-\u9fa5]{2,6})\s*(质量|太差|有问题|坏了|不满意|想退|退货)',
-            r'([\u4e00-\u9fa5]{2,6})\s*(要退货|想退货|申请退货|能退吗)',
-            r'([\u4e00-\u9fa5]{2,6})\s*(开发票|的发票)',
-            r'([\u4e00-\u9fa5]{2,6})\s*(物流|快递|到哪了)',
+            r'(这个|那个|买的|收到的|商品)\s*([\u4e00-\u9fa5]{2,6})',
+            r'(买|收到|购买|下单)\s*([\u4e00-\u9fa5]{2,6})',
         ]
 
         for pattern in product_patterns:
             match = re.search(pattern, text)
             if match:
                 product = match.group(2) if len(match.groups()) > 1 else match.group(1)
-                if product not in ['退货', '物流', '发票', '优惠券', '地址', '订单', '手机', '太差', '差劲', '问题', '质量', '商品']:
+                if product not in exclude_words and len(product) >= 2:
                     return product
+
+        suffix_patterns = [
+            r'(这个|那个)\s*([\u4e00-\u9fa5]{1,4})(柜|桌|椅|床|杯|壶|瓶|碗|盘|锅)',
+            r'([\u4e00-\u9fa5]{1,4})(柜|桌|椅|床|杯|壶|瓶|碗|盘|锅)\s*(坏|破损|损坏|有问题|想退|想换|质量)',
+        ]
+
+        for pattern in suffix_patterns:
+            match = re.search(pattern, text)
+            if match:
+                if len(match.groups()) >= 3:
+                    candidate = match.group(2) + match.group(3)
+                    if candidate not in exclude_words and len(candidate) >= 2:
+                        return candidate
+
+        product_suffix_patterns = [
+            r'(?<![\u4e00-\u9fa5])([\u4e00-\u9fa5]{1,3})(柜|桌|椅|床|杯|壶|瓶|碗|盘|锅)(?![\u4e00-\u9fa5])',
+            r'(?<![\u4e00-\u9fa5])([\u4e00-\u9fa5]{1,2})(鞋|包|帽|裤|裙|衫|袜|书|笔|本|伞|镜|表|灯)(?![\u4e00-\u9fa5])',
+        ]
+
+        for pattern in product_suffix_patterns:
+            match = re.search(pattern, text)
+            if match:
+                candidate = match.group(0)
+                if candidate not in exclude_words and len(candidate) >= 2:
+                    return candidate
 
         return None
 
+    def _clean_product_name(self, text: str) -> Optional[str]:
+        text = text.strip()
+
+        exclude_patterns = [
+            r'(退货|退款|换货|补发|开发票|物流|快递|质量|问题|破损|损坏|坏|想退|想换|有问题)',
+            r'(买|收到|购买|下单|这个|那个)',
+        ]
+        for pattern in exclude_patterns:
+            text = re.sub(pattern, '', text)
+
+        text = re.sub(r'\s+', '', text)
+
+        text = re.sub(r'^[\u4e00-\u4e9f]{1,2}(个|件|套|只|双|条|台|瓶|盒|袋|款|类|种|样|些|多|各|每)', '', text)
+        text = re.sub(r'(个|件|套|只|双|条|台|瓶|盒|袋|款|类|种|样|些|多|各|每)([\u4e00-\u9fa5])', r'\2', text)
+
+        text = re.sub(r'(好|坏|新|旧|大|小|高|矮|长|短|胖|瘦|宽|窄|厚|薄)(的)', '', text)
+        text = re.sub(r'(红|绿|蓝|白|黑|黄|紫|粉|灰|棕)(的)', '', text)
+        text = re.sub(r'(漂亮|好看|难看|可爱|实用|便宜|贵|划算)(的)', '', text)
+
+        text = re.sub(r'^[的是了我你他她它那这想]+', '', text)
+        text = re.sub(r'[的是了我你他她它]+$', '', text)
+
+        text = text.strip()
+
+        if len(text) >= 2:
+            return text
+        return None
+
+    def _strip_adjectives(self, text: str) -> Optional[str]:
+        adj_patterns = [
+            r'^(好|坏|新|旧|大|小|高|矮|长|短|胖|瘦|宽|窄|厚|薄)',
+            r'(好|坏|新|旧|大|小|高|矮|长|短|胖|瘦|宽|窄|厚|薄)$',
+            r'^(红|绿|蓝|白|黑|黄|紫|粉|灰|棕)',
+            r'(红|绿|蓝|白|黑|黄|紫|粉|灰|棕)$',
+            r'^(漂亮|好看|难看|可爱|实用|便宜|贵|划算)$',
+            r'^[的是了我你他她它]+',
+            r'[的是了我你他她它]+$',
+            r'^那{1,2}',
+            r'^(这|那)$',
+        ]
+
+        while True:
+            original = text
+            for pattern in adj_patterns:
+                text = re.sub(pattern, '', text)
+            if text == original:
+                break
+
+        text = text.strip()
+        return text if len(text) >= 2 else None
+
+    def learn_product(self, user_input: str) -> Optional[str]:
+        cleaned = self._clean_product_name(user_input)
+        if not cleaned:
+            return None
+
+        if cleaned in COMMON_PRODUCTS:
+            return cleaned
+
+        learned = self._load_learned_products()
+        if cleaned not in learned:
+            learned.append(cleaned)
+            self._save_learned_products(learned)
+
+        return cleaned
+
+    def _load_learned_products(self) -> list:
+        if not os.path.exists(LEARNED_PRODUCTS_FILE):
+            return []
+        try:
+            with open(LEARNED_PRODUCTS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return []
+
+    def _save_learned_products(self, products: list) -> None:
+        os.makedirs(os.path.dirname(LEARNED_PRODUCTS_FILE), exist_ok=True)
+        with open(LEARNED_PRODUCTS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(products, f, ensure_ascii=False, indent=2)
+
+    def get_all_products(self) -> list:
+        learned = self._load_learned_products()
+        return sorted(set(COMMON_PRODUCTS + learned), key=len, reverse=True)
+
     def detect_intent_by_rules(self, text: str) -> Tuple[Optional[str], float]:
-        from ..registry import get_registry
+        from registry import get_registry
 
         registry = get_registry()
         matched_channels = registry.find_channels_by_keyword(text)
@@ -130,7 +280,7 @@ class NLPService:
 
         return None, 0.0
 
-    def predict(self, text: str) -> Prediction:
+    def predict(self, text: str, session_id: Optional[str] = None) -> Prediction:
         text = text.strip()
         if not text:
             return Prediction(
@@ -144,7 +294,21 @@ class NLPService:
 
         self._init_predictor()
 
+        context_text = text
+        if session_id:
+            from services.session_service import get_session_service
+            session_service = get_session_service()
+            session_history = session_service.get_conversation_summary(session_id)
+            if session_history:
+                context_text = f"{session_history}\n用户最新输入: {text}"
+
         rule_intent, rule_confidence = self.detect_intent_by_rules(text)
+        context_intent, context_confidence = self.detect_intent_by_rules(context_text)
+
+        if context_intent and context_confidence > rule_confidence:
+            rule_intent = context_intent
+            rule_confidence = context_confidence
+
         model_intent = None
         model_confidence = 0.0
 
@@ -174,11 +338,25 @@ class NLPService:
             final_intent = 'default'
             confidence = 0.0
 
+        if session_id:
+            session_service = get_session_service()
+            prev_slots = session_service.get_slots(session_id)
+            if prev_slots and '商品名' in prev_slots:
+                if final_intent in ['退货申请', '退款申请', '换货申请', '质量问题', '货不对板', '商品投诉']:
+                    if confidence < CONFIDENCE_HIGH:
+                        confidence = min(CONFIDENCE_HIGH, confidence + 0.2)
+
         rule_slots = self.extract_slots(text)
         product_name = None
 
-        if final_intent in ['退货申请', '退款申请', '换货申请', '质量问题', '货不对板', '开发票', '物流查询', '查快递']:
+        if final_intent in ['退货申请', '退款申请', '换货申请', '质量问题', '货不对板', '开发票', '物流查询', '查快递', '商品投诉']:
             product_name = self.extract_product(text)
+
+            if not product_name and session_id:
+                session_service = get_session_service()
+                prev_slots = session_service.get_slots(session_id)
+                if prev_slots and '商品名' in prev_slots:
+                    product_name = prev_slots['商品名']
 
         final_slots = {}
         for slot_name in ['订单号', '手机号', '商品名', '收货地址', '发票抬头']:
@@ -186,8 +364,19 @@ class NLPService:
                 final_slots['商品名'] = product_name
             elif slot_name in rule_slots:
                 final_slots[slot_name] = rule_slots[slot_name]
+            elif session_id:
+                session_service = get_session_service()
+                prev_slots = session_service.get_slots(session_id)
+                if slot_name in prev_slots:
+                    final_slots[slot_name] = prev_slots[slot_name]
 
         group = self._get_group_by_intent(final_intent)
+
+        if session_id:
+            from services.session_service import get_session_service
+            session_service = get_session_service()
+            session_service.update_slots(session_id, final_slots)
+            session_service.append_intent(session_id, final_intent, confidence)
 
         return Prediction(
             intent=final_intent,
@@ -199,7 +388,7 @@ class NLPService:
         )
 
     def _get_group_by_intent(self, intent: str) -> ChannelGroup:
-        from ..registry import get_registry
+        from registry import get_registry
 
         registry = get_registry()
         channel = registry.get_channel_by_intent(intent)

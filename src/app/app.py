@@ -1,10 +1,15 @@
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from flask import Flask, request, render_template_string, session as flask_session, jsonify
 
-from src.models import ChannelGroup, MessageRole
-from src.registry import get_registry
-from src.services.nlp_service import get_nlp_service, MAX_CLARIFICATION_ROUNDS
-from src.services.session_service import get_session_service
-from src.services.review_service import get_review_service
+from models import ChannelGroup, MessageRole
+from registry import get_registry
+from services.nlp_service import get_nlp_service, MAX_CLARIFICATION_ROUNDS
+from services.session_service import get_session_service
+from services.review_service import get_review_service
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-here-change-in-production'
@@ -54,49 +59,98 @@ def index():
             current_view = view_switch
 
         elif current_view == 'user':
-            if user_text:
-                session_service.add_message(session_id, MessageRole.USER, user_text)
+                if user_text:
+                    session_service.add_message(session_id, MessageRole.USER, user_text)
 
-                if any(keyword in user_text for keyword in ['转人工', '人工客服', '找人工']):
-                    session_service.add_message(session_id, MessageRole.ASSISTANT, '好的，正在为您转接人工客服，请稍候...')
-                    show_redirect_modal = True
-                    redirect_channel = '转人工'
-                    redirect_api = registry.get_channel_by_intent('转人工').api
-                else:
-                    user_count = session_service.get_user_message_count(session_id)
-
-                    if user_count >= MAX_CLARIFICATION_ROUNDS:
-                        conversation_summary = session_service.get_conversation_summary(session_id)
-                        prediction = nlp_service.predict(conversation_summary)
-
-                        intent = prediction.intent
-                        if intent == 'default':
-                            intent = '转人工'
-
-                        session_service.add_message(session_id, MessageRole.ASSISTANT,
-                            f'根据您的描述，我已经了解您的问题了。\n\n【总结】\n您的问题属于：{prediction.group.value}\n服务类型：{intent}\n\n正在为您跳转到对应服务渠道...')
-
-                        if enable_human_review:
-                            review_service.add_review(
-                                session_id=session_id,
-                                conversation_summary=conversation_summary,
-                                full_history=str(messages),
-                                intent=intent,
-                                confidence=prediction.confidence,
-                                slots=prediction.slots,
-                                group=prediction.group,
-                                rounds=user_count,
-                            )
-                        else:
-                            show_redirect_modal = True
-                            redirect_channel = intent
-                            channel = registry.get_channel_by_intent(intent)
-                            redirect_api = channel.api if channel else ''
+                    if any(keyword in user_text for keyword in ['转人工', '人工客服', '找人工']):
+                        session_service.add_message(session_id, MessageRole.ASSISTANT, '好的，正在为您转接人工客服，请稍候...')
+                        show_redirect_modal = True
+                        redirect_channel = '转人工'
+                        redirect_api = registry.get_channel_by_intent('转人工').api
                     else:
-                        prediction = nlp_service.predict(user_text)
-                        remaining = max(0, MAX_CLARIFICATION_ROUNDS - user_count)
-                        session_service.add_message(session_id, MessageRole.ASSISTANT,
-                            f'{prediction.clarification_question}')
+                        user_count = session_service.get_user_message_count(session_id)
+
+                        if user_count >= MAX_CLARIFICATION_ROUNDS:
+                            conversation_summary = session_service.get_conversation_summary(session_id)
+                            prediction = nlp_service.predict(conversation_summary, session_id)
+
+                            intent = prediction.intent
+                            if intent == 'default':
+                                intent = '转人工'
+
+                            slots_info = session_service.get_slots(session_id)
+                            slots_str = '\n'.join(f'· {k}: {v}' for k, v in slots_info.items()) if slots_info else '暂无'
+
+                            session_service.add_message(session_id, MessageRole.ASSISTANT,
+                                f'根据您的描述，我已经了解您的问题了。\n\n【总结】\n您的问题属于：{prediction.group.value}\n服务类型：{intent}\n\n【已识别信息】\n{slots_str}\n\n正在为您跳转到对应服务渠道...')
+
+                            if enable_human_review:
+                                review_service.add_review(
+                                    session_id=session_id,
+                                    conversation_summary=conversation_summary,
+                                    full_history=str(messages),
+                                    intent=intent,
+                                    confidence=prediction.confidence,
+                                    slots=slots_info,
+                                    group=prediction.group,
+                                    rounds=user_count,
+                                )
+                            else:
+                                show_redirect_modal = True
+                                redirect_channel = intent
+                                channel = registry.get_channel_by_intent(intent)
+                                redirect_api = channel.api if channel else ''
+                        else:
+                            is_learning = session_service.get_metadata(session_id, 'is_learning_product', False)
+
+                            if is_learning:
+                                learned_product = nlp_service.learn_product(user_text)
+                                if learned_product:
+                                    session_service.set_metadata(session_id, 'is_learning_product', False)
+                                    session_service.update_slots(session_id, {'商品名': learned_product})
+                                    session_service.add_message(session_id, MessageRole.ASSISTANT,
+                                        f'好的，我已经记住了「{learned_product}」。\n\n请问您想对「{learned_product}」进行什么操作呢？（退货、退款、换货、开发票等）')
+                                else:
+                                    session_service.add_message(session_id, MessageRole.ASSISTANT,
+                                        '抱歉，我没能理解您说的商品名称。请直接告诉我商品名称，例如"水杯"、"柜子"。')
+                            else:
+                                prev_intent = session_service.get_metadata(session_id, 'last_intent', None)
+                                prev_slots = session_service.get_slots(session_id)
+
+                                prediction = nlp_service.predict(user_text, session_id)
+                                remaining = max(0, MAX_CLARIFICATION_ROUNDS - user_count)
+                                slots_info = session_service.get_slots(session_id)
+
+                                need_clarify_product = False
+                                if prediction.intent in ['退货申请', '退款申请', '换货申请', '质量问题', '货不对板', '开发票', '物流查询', '查快递', '商品投诉']:
+                                    product_name = nlp_service.extract_product(user_text)
+                                    if not product_name:
+                                        if slots_info and '商品名' in slots_info:
+                                            product_name = slots_info['商品名']
+                                        else:
+                                            need_clarify_product = True
+
+                                context_keywords = ['质量', '发霉', '坏了', '甲醛', '异味', '破损', '投诉', '退货', '退款', '换货']
+                                has_context_keyword = any(kw in user_text for kw in context_keywords)
+
+                                if prev_intent and prev_intent != 'default' and prediction.intent == 'default' and has_context_keyword:
+                                    prediction = nlp_service.predict(f'{prev_intent}: {user_text}', session_id)
+
+                                if prediction.intent != 'default':
+                                    session_service.set_metadata(session_id, 'last_intent', prediction.intent)
+
+                                if need_clarify_product:
+                                    session_service.set_metadata(session_id, 'is_learning_product', True)
+                                    clarification_text = '抱歉，我没能识别出您提到的商品。\n\n请告诉我您说的是什么商品呢？例如"水杯"、"柜子"。'
+                                elif prev_intent and prev_intent != 'default' and prediction.intent == 'default':
+                                    clarification_text = '我理解您遇到了问题，请告诉我具体是什么情况，我会尽力帮您处理。'
+                                elif slots_info:
+                                    slots_str = '，'.join(f'{k}={v}' for k, v in slots_info.items())
+                                    clarification_text = f'{prediction.clarification_question}\n\n【已识别信息】{slots_str}'
+                                else:
+                                    clarification_text = prediction.clarification_question
+
+                                session_service.add_message(session_id, MessageRole.ASSISTANT, clarification_text)
 
         elif current_view == 'admin':
             if admin_action == 'submit':
@@ -152,6 +206,25 @@ def index():
         success_message=success_message,
         channel_group_enum=ChannelGroup
     )
+
+
+@app.route('/reset', methods=['POST'])
+def reset_conversation():
+    import uuid
+    
+    session_service = get_session_service()
+    session_id = flask_session.get('session_id')
+    
+    if session_id:
+        session_service.delete_session(session_id)
+    
+    flask_session.clear()
+    flask_session.permanent = False
+    
+    new_session_id = str(uuid.uuid4())
+    flask_session['session_id'] = new_session_id
+    
+    return jsonify({'success': True, 'message': '对话已重置', 'new_session_id': new_session_id})
 
 
 @app.route('/api/health')
@@ -243,6 +316,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         .btn-success { background: #4caf50; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; }
         .btn-danger { background: #ef5350; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; }
         .btn-secondary { background: #f0f0f0; color: #666; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; }
+        .btn-reset { background: #ff7043; color: #fff; border: none; padding: 8px 16px; border-radius: 20px; font-size: 12px; cursor: pointer; font-weight: bold; }
+        .btn-reset:hover { background: #f4511e; }
         @media (max-width: 600px) {
             .header { flex-direction: column; gap: 12px; align-items: flex-start; }
             .message-content { max-width: 85%; }
@@ -257,9 +332,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <h1>客服中转中心</h1>
             <span class="tag">Service Router</span>
         </div>
-        <div class="review-switch">
-            <label>开启人工审核</label>
-            <div class="toggle {{ 'active' if enable_human_review else '' }}" onclick="toggleReview()"></div>
+        <div style="display:flex; align-items:center; gap:16px;">
+            <button class="btn-reset" onclick="resetConversation()" title="开始新对话">重置对话</button>
+            <div class="review-switch">
+                <label>开启人工审核</label>
+                <div class="toggle {{ 'active' if enable_human_review else '' }}" onclick="toggleReview()"></div>
+            </div>
         </div>
     </div>
     <div class="container">
@@ -428,6 +506,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 btn.textContent = '发送中...';
             }
             return true;
+        }
+
+        function resetConversation() {
+            if (confirm('确定要开始新对话吗？当前对话记录将被清除。')) {
+                fetch('/reset', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+                }).then(res => res.json()).then(data => {
+                    if (data.success) {
+                        window.location.reload();
+                    }
+                });
+            }
         }
 
         function toggleReview() {

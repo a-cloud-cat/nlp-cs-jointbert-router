@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import os
+import sys
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from ..models import ChannelGroup, ReviewItem
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from models import ChannelGroup, ReviewItem
 
 
 class ReviewService:

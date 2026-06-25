@@ -9,3 +9,5 @@ checkpoints/
 .DS_Store
 output/
 *.log
+claude-code-main/
+claw-code-main/
