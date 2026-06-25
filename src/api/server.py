@@ -132,7 +132,7 @@ def index():
                                 slots_info = session_service.get_slots(session_id)
 
                                 need_clarify_product = False
-                                if prediction.intent in ['退货申请', '退款申请', '换货申请', '质量问题', '货不对板', '开发票', '物流查询', '查快递', '商品投诉']:
+                                if prediction.intent in ['退货申请', '退款申请', '换货申请', '质量问题', '货不对板', '开发票', '物流查询', '查快递']:
                                     product_name = nlp_service.extract_product(user_text)
                                     if not product_name:
                                         if slots_info and '商品名' in slots_info:
