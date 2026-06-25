@@ -15,11 +15,13 @@ app = Flask(__name__)
 app.secret_key = 'your-secret-key-here-change-in-production'
 
 enable_human_review = False
+enable_long_conversation = False
+LONG_CONVERSATION_ROUNDS = 50
 
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    global enable_human_review
+    global enable_human_review, enable_long_conversation
 
     session_service = get_session_service()
     nlp_service = get_nlp_service()
@@ -36,7 +38,9 @@ def index():
     session_service.get_or_create_session(session_id)
     messages = session_service.get_messages(session_id)
     user_message_count = session_service.get_user_message_count(session_id)
-    remaining_rounds = max(0, MAX_CLARIFICATION_ROUNDS - user_message_count)
+    
+    max_rounds = LONG_CONVERSATION_ROUNDS if enable_long_conversation else MAX_CLARIFICATION_ROUNDS
+    remaining_rounds = max(0, max_rounds - user_message_count)
 
     show_redirect_modal = False
     redirect_channel = None
@@ -53,6 +57,10 @@ def index():
         if review_switch == 'toggle':
             enable_human_review = not enable_human_review
             return jsonify({'success': True, 'enable_human_review': enable_human_review})
+        
+        if request.form.get('long_conversation_switch') == 'toggle':
+            enable_long_conversation = not enable_long_conversation
+            return jsonify({'success': True, 'enable_long_conversation': enable_long_conversation})
 
         if view_switch:
             flask_session['current_view'] = view_switch
@@ -69,8 +77,9 @@ def index():
                         redirect_api = registry.get_channel_by_intent('转人工').api
                     else:
                         user_count = session_service.get_user_message_count(session_id)
+                        max_rounds = LONG_CONVERSATION_ROUNDS if enable_long_conversation else MAX_CLARIFICATION_ROUNDS
 
-                        if user_count >= MAX_CLARIFICATION_ROUNDS:
+                        if user_count >= max_rounds:
                             conversation_summary = session_service.get_conversation_summary(session_id)
                             prediction = nlp_service.predict(conversation_summary, session_id)
 
@@ -118,7 +127,8 @@ def index():
                                 prev_slots = session_service.get_slots(session_id)
 
                                 prediction = nlp_service.predict(user_text, session_id)
-                                remaining = max(0, MAX_CLARIFICATION_ROUNDS - user_count)
+                                max_rounds = LONG_CONVERSATION_ROUNDS if enable_long_conversation else MAX_CLARIFICATION_ROUNDS
+                                remaining = max(0, max_rounds - user_count)
                                 slots_info = session_service.get_slots(session_id)
 
                                 need_clarify_product = False
@@ -173,7 +183,8 @@ def index():
 
     messages = session_service.get_messages(session_id)
     user_message_count = session_service.get_user_message_count(session_id)
-    remaining_rounds = max(0, MAX_CLARIFICATION_ROUNDS - user_message_count)
+    max_rounds = LONG_CONVERSATION_ROUNDS if enable_long_conversation else MAX_CLARIFICATION_ROUNDS
+    remaining_rounds = max(0, max_rounds - user_message_count)
 
     pending_reviews = review_service.get_pending_reviews()
 
@@ -199,6 +210,7 @@ def index():
         admin_view=admin_view,
         api_view=api_view,
         enable_human_review=enable_human_review,
+        enable_long_conversation=enable_long_conversation,
         show_redirect_modal=show_redirect_modal,
         redirect_channel=redirect_channel,
         redirect_api=redirect_api,
@@ -235,7 +247,8 @@ def health():
         'status': 'ok',
         'session_stats': session_service.get_stats(),
         'review_stats': review_service.get_stats(),
-        'enable_human_review': enable_human_review
+        'enable_human_review': enable_human_review,
+        'enable_long_conversation': enable_long_conversation
     })
 
 
@@ -337,6 +350,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             <div class="review-switch">
                 <label>开启人工审核</label>
                 <div class="toggle {{ 'active' if enable_human_review else '' }}" onclick="toggleReview()"></div>
+            </div>
+            <div class="review-switch">
+                <label>长对话模式</label>
+                <div class="toggle {{ 'active' if enable_long_conversation else '' }}" onclick="toggleLongConversation()"></div>
             </div>
         </div>
     </div>
@@ -527,8 +544,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 headers: {'Content-Type': 'application/x-www-form-urlencoded'},
                 body: 'review_switch=toggle'
             }).then(res => res.json()).then(data => {
-                var toggle = document.querySelector('.review-switch .toggle');
+                var toggle = document.querySelector('.review-switch:nth-child(2) .toggle');
                 if (data.enable_human_review) {
+                    toggle.classList.add('active');
+                } else {
+                    toggle.classList.remove('active');
+                }
+            });
+        }
+
+        function toggleLongConversation() {
+            fetch('/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'long_conversation_switch=toggle'
+            }).then(res => res.json()).then(data => {
+                var toggle = document.querySelector('.review-switch:nth-child(3) .toggle');
+                if (data.enable_long_conversation) {
                     toggle.classList.add('active');
                 } else {
                     toggle.classList.remove('active');
