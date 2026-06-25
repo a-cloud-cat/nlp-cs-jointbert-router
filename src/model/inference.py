@@ -4,6 +4,10 @@ import torch
 import re
 import random
 from typing import Dict, Optional
+# ==========新增两行导入==========
+from modelscope.pipelines import pipeline
+from modelscope.utils.constant import Tasks
+# ==============================
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -32,7 +36,8 @@ SLOT_IDX_MAP = {
 }
 
 BERT_MODEL_NAME = "bert-base-chinese"
-CHECKPOINT_DIR = "./checkpoints"
+CHECKPOINT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '..', 'checkpoints')
+LOCAL_MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '..', 'models', 'bert-base-chinese')
 MAX_SEQ_LEN = 128
 
 CONFIDENCE_HIGH = 0.85
@@ -40,13 +45,22 @@ CONFIDENCE_MEDIUM = 0.4
 MAX_CLARIFICATION_ROUNDS = 5
 
 COMMON_PRODUCTS = [
-    '手机壳', '蓝牙耳机', '笔记本电脑', '充电宝', '数据线', '鼠标', '键盘', '显示器',
-    '茶杯', '保温杯', '衣服', '鞋子', '包包', '化妆品', '护肤品', '手表', '耳机',
-    '台灯', '书桌', '椅子', '电脑', '手机', '平板', '音箱', '路由器', '硬盘',
-    '充电器', '电池', 'U盘', '摄像头', '耳机套', 'T恤', '裤子', '帽子', '围巾',
-    '手套', '袜子', '眼镜', '雨伞', '背包', '钱包', '皮带', '领带', '皮鞋',
-    '运动鞋', '拖鞋', '睡衣', '内衣', '外套', '毛衣', '衬衫', '裙子', '短裤'
-]
+        '手机壳', '蓝牙耳机', '笔记本电脑', '充电宝', '数据线', '鼠标', '键盘', '显示器',
+        '茶杯', '保温杯', '水杯', '水壶', '水瓶', '衣服', '鞋子', '包包', '化妆品', '护肤品', '手表', '耳机',
+        '台灯', '书桌', '椅子', '柜子', '书架', '床', '沙发', '茶几', '桌子', '电脑', '手机', '平板', '音箱', '路由器', '硬盘',
+        '充电器', '电池', 'U盘', '摄像头', '耳机套', 'T恤', '裤子', '帽子', '围巾',
+        '手套', '袜子', '眼镜', '雨伞', '背包', '钱包', '皮带', '领带', '皮鞋',
+        '运动鞋', '拖鞋', '睡衣', '内衣', '外套', '毛衣', '衬衫', '裙子', '短裤',
+        '冰箱', '洗衣机', '空调', '电视', '微波炉', '烤箱', '电饭煲', '电水壶', '电风扇', '吹风机',
+        '牙刷', '牙膏', '毛巾', '浴巾', '洗发水', '沐浴露', '洗面奶', '面霜', '面膜',
+        '书籍', '课本', '教材', '文具', '笔', '本子', '书包', '文件夹', '计算器', '书本',
+        '锅', '碗', '盘子', '筷子', '勺子', '刀', '砧板', '保鲜盒',
+        '窗帘', '地毯', '枕头', '被子', '床单', '被套', '蚊帐', '衣架',
+        '自行车', '电动车', '汽车用品', '行李箱', '旅行包', '太阳镜',
+        '零食', '食品', '水果', '蔬菜', '饮料', '牛奶', '面包', '饼干', '巧克力', '糖果',
+        '坚果', '薯片', '方便面', '火腿肠', '罐头', '茶叶', '咖啡', '酸奶', '蛋糕', '冰淇淋',
+        '娃娃', '玩具', '玩偶', '公仔', '毛绒玩具', '积木', '拼图', '模型', '手办'
+    ]
 
 INTENT_KEYWORDS = {
     '退货申请': ['退货', '想退', '要退', '退货退款', '申请退货', '退回去', '想把货退了', '申请退款退货', '办理退货', '退货申请', '退货款'],
@@ -56,7 +70,7 @@ INTENT_KEYWORDS = {
     '售后维权': ['维权', '投诉维权', '申请维权', '维权申请', '售后投诉', '申请售后'],
     '商品投诉': ['投诉', '投诉商品', '商品投诉', '商品有问题', '产品质量', '商品质量', '有瑕疵'],
     '商家投诉': ['商家态度', '投诉商家', '商家恶劣', '服务态度', '客服态度', '卖家态度'],
-    '质量问题': ['质量差', '质量问题', '有问题', '坏了', '差劲', '瑕疵', '质量不好', '质量太差', '做工差', '有缺陷', '损坏'],
+    '质量问题': ['质量差', '质量问题', '有问题', '坏了', '差劲', '瑕疵', '质量不好', '质量太差', '做工差', '有缺陷', '损坏', '不行', '不好用', '不能用', '用不了', '没法用', '效果不好', '没用', '不太行', '不满意', '糟糕', '质量一般', '很一般'],
     '货不对板': ['货不对板', '发错货', '不是这个', '与描述不符', '描述不一致', '收到的不是', '发错了', '寄错了'],
     '少发漏发': ['少发', '漏发', '没发全', '少了一件', '漏寄了', '少寄了', '缺少', '没收到'],
     '物流查询': ['物流', '查物流', '物流进度', '物流信息', '快递进度', '查快递信息', '物流到哪了'],
@@ -134,32 +148,58 @@ CLARIFICATION_QUESTIONS = {
 
 class Predictor:
     def __init__(self):
-        self.tokenizer = None
-        self.model = None
+        self.nlu_model = None
+        self.schema = None
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self._init_model()
 
     def _init_model(self):
+        # ==========完全注释掉原来的JointBERT加载代码==========
+        # try:
+        #     from transformers import BertTokenizer
+        #     from model.joint_bert import JointBERT
+        #
+        #     if os.path.exists(LOCAL_MODEL_PATH):
+        #         self.tokenizer = BertTokenizer.from_pretrained(LOCAL_MODEL_PATH, local_files_only=True)
+        #         print(f'Loaded tokenizer from local path: {LOCAL_MODEL_PATH}')
+        #     else:
+        #         self.tokenizer = BertTokenizer.from_pretrained(BERT_MODEL_NAME)
+        #         print(f'Loaded tokenizer from HuggingFace: {BERT_MODEL_NAME}')
+        #
+        #     self.model = JointBERT()
+        #
+        #     checkpoint_path = os.path.join(CHECKPOINT_DIR, 'best_model.pt')
+        #     if os.path.exists(checkpoint_path):
+        #         self.model.load_state_dict(torch.load(checkpoint_path, map_location=self.device))
+        #         self.model.to(self.device)
+        #         self.model.eval()
+        #         print(f'Model loaded successfully from {checkpoint_path}')
+        #     else:
+        #         print(f'Warning: Model checkpoint not found at {checkpoint_path}')
+        #         print('Will use rule-based prediction only')
+        #         self.model = None
+        # except Exception as e:
+        #     print(f'Failed to load model: {e}')
+        #     print('Will use rule-based prediction only')
+        #     self.tokenizer = None
+        #     self.model = None
+        # ======================================================
+
+        # 加载你本地下载好的Rex成品模型
         try:
-            from transformers import BertTokenizer
-            from model.joint_bert import JointBERT
-
-            self.tokenizer = BertTokenizer.from_pretrained(BERT_MODEL_NAME)
-            self.model = JointBERT()
-
-            checkpoint_path = os.path.join(CHECKPOINT_DIR, 'best_model.pt')
-            if os.path.exists(checkpoint_path):
-                self.model.load_state_dict(torch.load(checkpoint_path, map_location=self.device))
-                self.model.to(self.device)
-                self.model.eval()
-                print('Model loaded successfully')
-            else:
-                print(f'Warning: Model checkpoint not found at {checkpoint_path}')
-                self.model = None
+            self.nlu_model = pipeline(
+                Tasks.named_entity_recognition,
+                model="./models/NPL_6_25"
+            )
+            # 绑定你的业务意图与槽位
+            self.schema = {
+                "意图选项": INTENT_LABELS,
+                "需要提取槽位": {"订单号": None, "手机号": None, "商品名": None, "收货地址": None, "发票抬头": None}
+            }
+            print("✅ RexUniNLU成品模型加载完成，替代原有BERT训练模型")
         except Exception as e:
-            print(f'Failed to load model: {e}')
-            self.tokenizer = None
-            self.model = None
+            print(f"❌ 成品模型加载失败: {e}，仅使用规则匹配")
+            self.nlu_model = None
 
     def extract_slots_by_rules(self, text):
         slots = {}
@@ -238,31 +278,19 @@ class Predictor:
         rule_intent, rule_confidence = self.detect_intent_by_rules(text)
         model_intent = None
         model_confidence = 0.0
+        model_slots = {}
 
-        if self.model and self.tokenizer:
+        # ==========替换原来的BERT推理代码，使用Rex模型推理==========
+        if self.nlu_model is not None:
             try:
-                encoding = self.tokenizer(
-                    text,
-                    max_length=MAX_SEQ_LEN,
-                    padding='max_length',
-                    truncation=True,
-                    return_attention_mask=True,
-                    return_tensors='pt'
-                )
-
-                input_ids = encoding['input_ids'].to(self.device)
-                attention_mask = encoding['attention_mask'].to(self.device)
-
-                with torch.no_grad():
-                    intent_logits, _ = self.model(input_ids, attention_mask)
-
-                intent_probs = torch.softmax(intent_logits, dim=1)
-                max_prob, intent_idx = torch.max(intent_probs, dim=1)
-                model_intent = INTENT_LABELS[intent_idx]
-                model_confidence = max_prob.item()
+                res = self.nlu_model((text, self.schema))
+                model_intent = res[0]['intent']
+                model_confidence = float(res[0]['score'])
+                model_slots = res[0]['slots']
             except Exception as e:
-                print(f'Model prediction error: {e}')
+                print(f'成品模型推理异常: {e}')
                 model_intent = None
+        # ==========================================================
 
         if rule_intent:
             if model_intent and model_confidence > 0.7:
@@ -289,8 +317,12 @@ class Predictor:
             product_name = self.extract_product(text)
 
         final_slots = {}
-        for slot_name in ['订单号', '手机号', '商品名', '收货地址', '发票抬头']:
-            if slot_name == '商品名' and product_name:
+        # Rex模型识别的槽位优先级最高，规则只做兜底补充
+        all_slot_keys = ['订单号', '手机号', '商品名', '收货地址', '发票抬头']
+        for slot_name in all_slot_keys:
+            if slot_name in model_slots:
+                final_slots[slot_name] = model_slots[slot_name]
+            elif slot_name == '商品名' and product_name:
                 final_slots['商品名'] = product_name
             elif slot_name in rule_slots:
                 final_slots[slot_name] = rule_slots[slot_name]
@@ -356,7 +388,7 @@ if __name__ == '__main__':
     for text in test_cases:
         result = predictor.predict(text)
         print(f'Text: {text}')
-        print(f'Intent: {result['intent']} (group: {result['group']}, confidence: {result['confidence']:.2f})')
-        print(f'Slots: {result['slots']}')
-        print(f'Clarification needed: {result['clarification_needed']}')
+        print(f'Intent: {result["intent"]} (group: {result["group"]}, confidence: {result["confidence"]:.2f})')
+        print(f'Slots: {result["slots"]}')
+        print(f'Clarification needed: {result["clarification_needed"]}')
         print('---')

@@ -62,6 +62,27 @@ def index():
             enable_long_conversation = not enable_long_conversation
             return jsonify({'success': True, 'enable_long_conversation': enable_long_conversation})
 
+        if request.form.get('confirm_redirect') == 'true':
+            prev_intent = session_service.get_metadata(session_id, 'last_intent', None)
+            if prev_intent and prev_intent != 'default':
+                channel = registry.get_channel_by_intent(prev_intent)
+                if channel and enable_human_review:
+                    conversation_summary = session_service.get_conversation_summary(session_id)
+                    messages = session_service.get_messages(session_id)
+                    user_count = session_service.get_user_message_count(session_id)
+                    review_service.add_review(
+                        session_id=session_id,
+                        conversation_summary=conversation_summary,
+                        full_history=str(messages),
+                        intent=prev_intent,
+                        confidence=1.0,
+                        slots={},
+                        group=channel.group,
+                        rounds=user_count,
+                    )
+            session_service.set_metadata(session_id, 'redirect_pending', False)
+            return jsonify({'success': True})
+
         if view_switch:
             flask_session['current_view'] = view_switch
             current_view = view_switch
@@ -93,7 +114,8 @@ def index():
                             session_service.add_message(session_id, MessageRole.ASSISTANT,
                                 f'根据您的描述，我已经了解您的问题了。\n\n【总结】\n您的问题属于：{prediction.group.value}\n服务类型：{intent}\n\n【已识别信息】\n{slots_str}\n\n正在为您跳转到对应服务渠道...')
 
-                            if enable_human_review:
+                            redirect_pending = session_service.get_metadata(session_id, 'redirect_pending', False)
+                            if enable_human_review and not redirect_pending:
                                 review_service.add_review(
                                     session_id=session_id,
                                     conversation_summary=conversation_summary,
@@ -104,11 +126,12 @@ def index():
                                     group=prediction.group,
                                     rounds=user_count,
                                 )
-                            else:
-                                show_redirect_modal = True
-                                redirect_channel = intent
-                                channel = registry.get_channel_by_intent(intent)
-                                redirect_api = channel.api if channel else ''
+                            
+                            force_redirect = True
+                            show_redirect_modal = True
+                            redirect_channel = intent
+                            channel = registry.get_channel_by_intent(intent)
+                            redirect_api = channel.api if channel else ''
                         else:
                             is_learning = session_service.get_metadata(session_id, 'is_learning_product', False)
 
@@ -133,7 +156,13 @@ def index():
 
                                 messages = session_service.get_messages(session_id)
                                 recent_user_messages = [m['text'] for m in messages if m['role'] == 'user'][-3:]
-                                is_repeated = user_text in recent_user_messages
+                                is_repeated = user_text.strip() in [m.strip() for m in recent_user_messages]
+
+                                confirm_keywords = ['处理', '咋处理', '怎么处理', '赶紧处理', '倒是处理', '快点', '快点处理', '解决', '怎么解决']
+                                is_confirming = any(kw in user_text for kw in confirm_keywords)
+
+                                deny_keywords = ['不是', '不对', '取消', '不是这个', '不是这个问题', '弄错了', '搞错了', '我不是', '我没说']
+                                is_denying = any(kw in user_text for kw in deny_keywords)
 
                                 need_clarify_product = False
                                 if prediction.intent in ['退货申请', '退款申请', '换货申请', '质量问题', '货不对板', '开发票', '物流查询', '查快递']:
@@ -144,7 +173,7 @@ def index():
                                         else:
                                             need_clarify_product = True
 
-                                context_keywords = ['质量', '发霉', '坏了', '甲醛', '异味', '破损', '投诉', '退货', '退款', '换货']
+                                context_keywords = ['质量', '发霉', '坏了', '甲醛', '异味', '破损', '投诉', '退货', '退款', '换货', '不行', '不好用', '不能用', '用不了']
                                 has_context_keyword = any(kw in user_text for kw in context_keywords)
 
                                 if prev_intent and prev_intent != 'default' and prediction.intent == 'default' and has_context_keyword:
@@ -153,8 +182,36 @@ def index():
                                 if prediction.intent != 'default':
                                     session_service.set_metadata(session_id, 'last_intent', prediction.intent)
 
-                                if is_repeated:
-                                    clarification_text = '好的，我明白了。根据您的描述，我将为您处理这个问题。'
+                                if is_denying and prev_intent and prev_intent != 'default':
+                                    session_service.set_metadata(session_id, 'last_intent', None)
+                                    session_service.set_metadata(session_id, 'redirect_pending', False)
+                                    clarification_text = '抱歉，是我理解错了。请重新描述一下您的问题，我会尽力为您处理。'
+                                elif is_confirming and prev_intent and prev_intent != 'default':
+                                    channel = registry.get_channel_by_intent(prev_intent)
+                                    if channel:
+                                        show_redirect_modal = True
+                                        redirect_channel = prev_intent
+                                        redirect_api = channel.api
+                                        clarification_text = f'好的，我将为您跳转到【{prev_intent}】服务渠道。'
+                                        session_service.set_metadata(session_id, 'redirect_pending', True)
+                                    else:
+                                        clarification_text = f'好的，我将为您处理【{prev_intent}】问题。'
+                                    if slots_info:
+                                        slots_str = '，'.join(f'{k}={v}' for k, v in slots_info.items())
+                                        clarification_text += f'\n\n【已识别信息】{slots_str}'
+                                elif is_repeated and prev_intent and prev_intent != 'default':
+                                    channel = registry.get_channel_by_intent(prev_intent)
+                                    if channel:
+                                        show_redirect_modal = True
+                                        redirect_channel = prev_intent
+                                        redirect_api = channel.api
+                                        clarification_text = f'好的，我理解您的问题。这是一个【{prev_intent}】问题，我将为您跳转到对应服务渠道。'
+                                        session_service.set_metadata(session_id, 'redirect_pending', True)
+                                    else:
+                                        clarification_text = f'好的，我理解您的问题。这是一个【{prev_intent}】问题，我将为您处理。'
+                                    if slots_info:
+                                        slots_str = '，'.join(f'{k}={v}' for k, v in slots_info.items())
+                                        clarification_text += f'\n\n【已识别信息】{slots_str}'
                                 elif need_clarify_product:
                                     session_service.set_metadata(session_id, 'is_learning_product', True)
                                     clarification_text = '抱歉，我没能识别出您提到的商品。\n\n请告诉我您说的是什么商品呢？例如"水杯"、"柜子"。'
@@ -220,6 +277,7 @@ def index():
         show_redirect_modal=show_redirect_modal,
         redirect_channel=redirect_channel,
         redirect_api=redirect_api,
+        force_redirect=force_redirect if 'force_redirect' in locals() else False,
         show_success_modal=show_success_modal,
         success_message=success_message,
         channel_group_enum=ChannelGroup
@@ -334,6 +392,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         .success-modal .btn { background: #4caf50; }
         .btn-success { background: #4caf50; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; }
         .btn-danger { background: #ef5350; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; }
+        .btn-primary { background: #2196f3; color: #fff; border: none; padding: 14px 24px; border-radius: 6px; font-size: 14px; font-weight: bold; cursor: pointer; }
         .btn-secondary { background: #f0f0f0; color: #666; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; }
         .btn-reset { background: #ff7043; color: #fff; border: none; padding: 8px 16px; border-radius: 20px; font-size: 12px; cursor: pointer; font-weight: bold; }
         .btn-reset:hover { background: #f4511e; }
@@ -500,12 +559,28 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <div class="modal-overlay" id="redirectModal">
             <div class="modal-content">
                 <h3>{{ redirect_channel }}</h3>
-                <p>正在为您跳转到对应服务渠道...</p>
+                {% if force_redirect %}
+                    <p>正在为您跳转到【{{ redirect_channel }}】服务渠道...</p>
+                {% else %}
+                    <p>确认跳转到【{{ redirect_channel }}】服务渠道？</p>
+                {% endif %}
                 <div style="margin-top:16px; color:#9e9e9e; font-size:12px;">目标API: {{ redirect_api }}</div>
-                <button class="btn" onclick="closeModal()">关闭</button>
+                {% if not force_redirect %}
+                <div style="margin-top:20px; display:flex; gap:12px;">
+                    <button class="btn btn-primary" onclick="confirmRedirect()">确认跳转</button>
+                    <button class="btn" onclick="closeModal()">取消</button>
+                </div>
+                {% endif %}
             </div>
         </div>
     {% endif %}
+    <script>
+        {% if show_redirect_modal and force_redirect %}
+            window.onload = function() {
+                confirmRedirect();
+            };
+        {% endif %}
+    </script>
 
     {% if show_success_modal %}
         <div class="modal-overlay" id="successModal">
@@ -579,6 +654,34 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             if (modal) {
                 modal.style.display = 'none';
             }
+            var userInput = document.getElementById('userInput');
+            if (userInput) {
+                userInput.value = '取消';
+            }
+            var chatForm = document.getElementById('chatForm');
+            if (chatForm) {
+                chatForm.submit();
+            }
+        }
+
+        function confirmRedirect() {
+            var modal = document.getElementById('redirectModal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+            fetch('/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'confirm_redirect=true',
+                credentials: 'same-origin'
+            }).then(res => res.json()).then(data => {
+                if (data.success) {
+                    alert('已确认跳转！即将为您连接【{{ redirect_channel }}】服务渠道...');
+                    window.location.reload();
+                }
+            }).catch(error => {
+                console.error('确认跳转失败:', error);
+            });
         }
 
         function closeSuccessModal() {

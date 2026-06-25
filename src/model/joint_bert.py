@@ -80,7 +80,13 @@ class CRFLayer(nn.Module):
 class JointBERT(nn.Module):
     def __init__(self):
         super(JointBERT, self).__init__()
-        self.bert = BertModel.from_pretrained(BERT_MODEL_NAME)
+        local_model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '..', 'models', 'bert-base-chinese')
+        if os.path.exists(local_model_path):
+            self.bert = BertModel.from_pretrained(local_model_path, local_files_only=True)
+            print(f'Loaded BertModel from local path: {local_model_path}')
+        else:
+            self.bert = BertModel.from_pretrained(BERT_MODEL_NAME)
+            print(f'Loaded BertModel from HuggingFace: {BERT_MODEL_NAME}')
         self.dropout = nn.Dropout(DROPOUT_RATE)
         self.intent_classifier = nn.Linear(self.bert.config.hidden_size, NUM_INTENT_CLASSES)
         self.slot_classifier = nn.Linear(self.bert.config.hidden_size, NUM_SLOT_CLASSES)

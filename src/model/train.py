@@ -6,6 +6,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from transformers import BertTokenizer
 from sklearn.metrics import accuracy_score, f1_score
+from tqdm import tqdm
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -52,39 +53,57 @@ class NLU_Dataset(Dataset):
         }
 
 def train():
-    tokenizer = BertTokenizer.from_pretrained(BERT_MODEL_NAME)
+    local_model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '..', 'models', 'bert-base-chinese')
+    if os.path.exists(local_model_path):
+        tokenizer = BertTokenizer.from_pretrained(local_model_path, local_files_only=True)
+        print(f'Loaded tokenizer from local path: {local_model_path}')
+    else:
+        tokenizer = BertTokenizer.from_pretrained(BERT_MODEL_NAME)
+        print(f'Loaded tokenizer from HuggingFace: {BERT_MODEL_NAME}')
     
+    print('Loading datasets...')
     train_data = load_dataset('train')
     val_data = load_dataset('val')
     test_data = load_dataset('test')
+    print(f'Datasets loaded: train={len(train_data)}, val={len(val_data)}, test={len(test_data)}')
     
+    print('Creating datasets...')
     train_dataset = NLU_Dataset(train_data, tokenizer)
     val_dataset = NLU_Dataset(val_data, tokenizer)
     test_dataset = NLU_Dataset(test_data, tokenizer)
+    print('Datasets created')
     
+    print('Creating data loaders...')
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    print(f'Data loaders created: train={len(train_loader)}, val={len(val_loader)}, test={len(test_loader)}')
     
     model = JointBERT()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f'Using device: {device}')
     model.to(device)
+    print('Model moved to device')
     
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
     intent_loss_fn = nn.CrossEntropyLoss()
+    print('Optimizer and loss function created')
     
     best_val_acc = 0
     patience = 0
     
     train_log = []
+    print(f'Starting training for {EPOCHS} epochs...')
     
     for epoch in range(EPOCHS):
+        print(f'\n=== Epoch {epoch+1}/{EPOCHS} ===')
         model.train()
         train_loss = 0
         train_intent_correct = 0
         train_total = 0
         
-        for batch in train_loader:
+        train_pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Train Epoch {epoch+1}/{EPOCHS}")
+        for i, batch in train_pbar:
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
             intent = batch['intent'].to(device)
@@ -103,6 +122,7 @@ def train():
             intent_preds = torch.argmax(intent_logits, dim=1)
             train_intent_correct += (intent_preds == intent).sum().item()
             train_total += input_ids.size(0)
+            train_pbar.set_postfix(loss=f"{loss.item():.4f}")
         
         train_loss = train_loss / train_total
         train_acc = train_intent_correct / train_total
@@ -113,7 +133,8 @@ def train():
         val_total = 0
         
         with torch.no_grad():
-            for batch in val_loader:
+            val_pbar = tqdm(val_loader, total=len(val_loader), desc=f"Val Epoch {epoch+1}/{EPOCHS}")
+            for batch in val_pbar:
                 input_ids = batch['input_ids'].to(device)
                 attention_mask = batch['attention_mask'].to(device)
                 intent = batch['intent'].to(device)
@@ -164,7 +185,8 @@ def train():
     all_slot_labels = []
     
     with torch.no_grad():
-        for batch in test_loader:
+        test_pbar = tqdm(test_loader, total=len(test_loader), desc="Testing")
+        for batch in test_pbar:
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
             intent = batch['intent'].to(device)
