@@ -266,6 +266,23 @@ class NLPService:
         learned = self._load_learned_products()
         return sorted(set(COMMON_PRODUCTS + learned), key=len, reverse=True)
 
+    INTENT_PRIORITY = {
+        '质量问题': 10,
+        '商品投诉': 9,
+        '商家投诉': 8,
+        '退货申请': 7,
+        '退款申请': 6,
+        '换货申请': 5,
+        '货不对板': 4,
+        '少发漏发': 3,
+        '拒收': 2,
+        '售后维权': 1,
+        '丢件破损': -1,
+        '物流查询': -2,
+        '查快递': -3,
+        '发货时效': -4,
+    }
+
     def detect_intent_by_rules(self, text: str) -> Tuple[Optional[str], float]:
         from registry import get_registry
 
@@ -273,10 +290,23 @@ class NLPService:
         matched_channels = registry.find_channels_by_keyword(text)
 
         if matched_channels:
-            channel = matched_channels[0]
-            matched_count = sum(1 for kw in channel.keywords if kw in text)
-            confidence = matched_count / len(channel.keywords)
-            return channel.intent, confidence
+            best_channel = None
+            best_score = -1
+            best_confidence = 0.0
+
+            for channel in matched_channels:
+                matched_count = sum(1 for kw in channel.keywords if kw in text)
+                confidence = matched_count / len(channel.keywords)
+                priority = self.INTENT_PRIORITY.get(channel.intent, 0)
+                score = priority + confidence
+
+                if score > best_score:
+                    best_score = score
+                    best_confidence = confidence
+                    best_channel = channel
+
+            if best_channel:
+                return best_channel.intent, best_confidence
 
         return None, 0.0
 

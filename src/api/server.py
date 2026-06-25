@@ -131,6 +131,10 @@ def index():
                                 remaining = max(0, max_rounds - user_count)
                                 slots_info = session_service.get_slots(session_id)
 
+                                messages = session_service.get_messages(session_id)
+                                recent_user_messages = [m['text'] for m in messages if m['role'] == 'user'][-3:]
+                                is_repeated = user_text in recent_user_messages
+
                                 need_clarify_product = False
                                 if prediction.intent in ['退货申请', '退款申请', '换货申请', '质量问题', '货不对板', '开发票', '物流查询', '查快递']:
                                     product_name = nlp_service.extract_product(user_text)
@@ -149,7 +153,9 @@ def index():
                                 if prediction.intent != 'default':
                                     session_service.set_metadata(session_id, 'last_intent', prediction.intent)
 
-                                if need_clarify_product:
+                                if is_repeated:
+                                    clarification_text = '好的，我明白了。根据您的描述，我将为您处理这个问题。'
+                                elif need_clarify_product:
                                     session_service.set_metadata(session_id, 'is_learning_product', True)
                                     clarification_text = '抱歉，我没能识别出您提到的商品。\n\n请告诉我您说的是什么商品呢？例如"水杯"、"柜子"。'
                                 elif prev_intent and prev_intent != 'default' and prediction.intent == 'default':
